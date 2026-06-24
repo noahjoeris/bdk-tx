@@ -6,7 +6,13 @@ pub(crate) fn random_probability(rng: &mut impl RngCore, n: u32) -> bool {
 }
 
 /// Returns a random value in the range [0, n) using unbiased rejection sampling.
+///
+/// Returns 0 when `n == 0`, as the range [0, 0) is empty (avoids a division-by-zero panic).
 pub(crate) fn random_range(rng: &mut impl RngCore, n: u32) -> u32 {
+    if n == 0 {
+        return 0;
+    }
+
     let threshold = n.wrapping_neg() % n;
 
     loop {
@@ -40,5 +46,12 @@ mod tests {
         fisher_yates_shuffle(&mut shuffled, &mut OsRng);
         shuffled.sort();
         assert_eq!(shuffled, original);
+    }
+
+    #[test]
+    fn test_random_range_zero_does_not_panic() {
+        // The range [0, 0) is empty; `random_range` must return 0 rather than
+        // panic on `0u32.wrapping_neg() % 0`, an integer division-by-zero.
+        assert_eq!(random_range(&mut OsRng, 0), 0);
     }
 }
