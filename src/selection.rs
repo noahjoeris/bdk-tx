@@ -646,6 +646,52 @@ mod tests {
         Ok(())
     }
 
+    /// Regression: pre-fix, the AFS nSequence path could fire on a tx whose `lock_time` was
+    /// already non-zero, producing a tx carrying *both* a near-tip locktime and a
+    /// confirmation-depth sequence — a fingerprint matching neither an ordinary wallet spend nor
+    /// an off-chain settlement, which is what the nSequence path exists to imitate.
+    #[test]
+    fn test_anti_fee_sniping_sequence_path_requires_zero_locktime() -> anyhow::Result<()> {
+        let tip = absolute::Height::from_consensus(3_000)?;
+        // Below the AFS target, so it does not otherwise interfere with the locktime path.
+        let min_locktime = absolute::LockTime::from_consensus(2_000);
+
+        // A confirmed Taproot input with no CSV: without `min_locktime` this would make the
+        // nSequence path reachable, so the test also guards against the fix being a no-op.
+        let input = setup_test_input(2_500)?;
+
+        let selection = Selection::new(
+            vec![input],
+            vec![Output::with_script(
+                ScriptBuf::new(),
+                Amount::from_sat(9_000),
+            )],
+        );
+
+        for _ in 0..100 {
+            let psbt = selection.create_psbt(PsbtParams {
+                min_locktime,
+                anti_fee_sniping: Some(tip),
+                ..Default::default()
+            })?;
+            let tx = psbt.unsigned_tx;
+
+            assert_eq!(
+                tx.input[0].sequence,
+                Sequence::ENABLE_RBF_NO_LOCKTIME,
+                "AFS must not take the nSequence path when tx.lock_time is non-zero",
+            );
+            assert!(
+                (tip.to_consensus_u32() - 100..=tip.to_consensus_u32())
+                    .contains(&tx.lock_time.to_consensus_u32()),
+                "AFS must still set a near-tip locktime, got {}",
+                tx.lock_time,
+            );
+        }
+
+        Ok(())
+    }
+
     /// Regression: pre-fix, the AFS nSequence path could pick a Taproot input that already carried
     /// a CSV (relative-timelock) requirement and overwrite its sequence. The presence of a regular
     /// Taproot input ensures the sequence path remains reachable — so the test also catches a
