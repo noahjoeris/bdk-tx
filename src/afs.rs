@@ -117,7 +117,12 @@ pub(crate) fn apply_anti_fee_sniping(
         .collect();
 
     // Conditions that force nLockTime (vs nSequence).
-    let must_use_locktime = taproot_inputs.is_empty()
+    //
+    // The nSequence path exists so the tx resembles an off-chain settlement spending a timelock
+    // path, and those carry nLockTime = 0. So a locktime already pinned by an input's CLTV (or by
+    // `min_locktime`) rules the nSequence path out.
+    let must_use_locktime = tx.lock_time != LockTime::ZERO
+        || taproot_inputs.is_empty()
         || inputs.iter().any(|input| {
             let confirmation = input.confirmations(tip_height);
             confirmation == 0 || confirmation > MAX_RELATIVE_HEIGHT
